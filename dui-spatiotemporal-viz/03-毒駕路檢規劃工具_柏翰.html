@@ -1,0 +1,381 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>毒駕路檢規劃工具</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<style>
+/* 版面：Overview（縣市）→ Zoom（路口）→ 決策（排名、回測、時段）→ Munzner 分析表 */
+:root{
+  --bg:#f5f6f8; --surface:#ffffff; --fg:#1c2330; --muted:#5f6878; --line:#d6dbe3; --street:#dde1e8;
+  --c1:#c4452b; --c2:#2f63ad; --c3:#c98a1e; --c4:#009990; --soft:#f3d6cc;
+  --s1:#fbe9e3; --s2:#f4c3b2; --s3:#e88e72; --s4:#cf5a3a; --s5:#9a3017;
+  --d1:#b8402a; --d2:#e3957f; --d3:#e4e6ea; --d4:#8fb0dc; --d5:#2f63ad; --na:#c9ced6; --on:#ffffff;
+  --sans:"Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#11151b; --surface:#191f28; --fg:#e8ecf2; --muted:#9aa4b3; --line:#2e3744; --street:#2a323e;
+  --c1:#dc5a3c; --c2:#5b93e0; --c3:#b8862a; --c4:#13a39e; --soft:#4a2a22;
+  --s1:#3a2620; --s2:#6b3324; --s3:#a1452b; --s4:#d8673f; --s5:#f4a07f;
+  --d1:#e0674a; --d2:#93473a; --d3:#3a414c; --d4:#3f6699; --d5:#78a8ea; --na:#3b434f; --on:#11151b; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#11151b; --surface:#191f28; --fg:#e8ecf2; --muted:#9aa4b3; --line:#2e3744; --street:#2a323e;
+  --c1:#dc5a3c; --c2:#5b93e0; --c3:#b8862a; --c4:#13a39e; --soft:#4a2a22;
+  --s1:#3a2620; --s2:#6b3324; --s3:#a1452b; --s4:#d8673f; --s5:#f4a07f;
+  --d1:#e0674a; --d2:#93473a; --d3:#3a414c; --d4:#3f6699; --d5:#78a8ea; --na:#3b434f; --on:#11151b; color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:15px;line-height:1.55;margin:0;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 32px}
+.wrap{max-width:1200px;margin:0 auto;display:grid;gap:14px}
+header{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline}
+h1{font-size:22px;margin:0;text-wrap:balance}
+.tag{font-size:12px;background:var(--soft);padding:2px 9px;border-radius:999px}
+.lead{margin:0;color:var(--muted);max-width:75ch}
+.step{font-size:13px;color:var(--muted);margin:10px 0 -4px;letter-spacing:.04em}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px;min-width:0}
+.row2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start}
+.row2.wide{grid-template-columns:minmax(0,1.2fr) minmax(0,1fr)}
+@media (max-width:860px){.row2,.row2.wide{grid-template-columns:minmax(0,1fr)}}
+h2{font-size:16px;margin:0 0 4px}
+.sub{font-size:13px;color:var(--muted);margin:0 0 6px}
+.chips{display:flex;flex-wrap:wrap;gap:4px 6px;margin:0 0 8px}
+.chip{font-size:11.5px;border:1px solid var(--line);border-radius:999px;padding:1px 8px;color:var(--muted)}
+.chip b{color:var(--fg);font-weight:500}
+svg.chart{width:100%;height:auto;display:block;overflow:visible}
+svg text{font-family:var(--sans)}
+.axis text{fill:var(--muted);font-size:10.5px}.axis line,.axis path{stroke:var(--line)}
+.controls{display:flex;flex-wrap:wrap;gap:12px 28px;align-items:center}
+.controls label{display:grid;gap:2px;font-size:13px;color:var(--muted)}
+.controls .r{display:flex;gap:10px;align-items:center;color:var(--fg);font-size:14px}
+input[type=range]{accent-color:var(--c1);width:150px}
+input:focus-visible,button:focus-visible{outline:2px solid var(--c1);outline-offset:2px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{font:inherit;font-size:13px;background:none;border:0;padding:4px 10px;color:var(--muted);cursor:pointer}
+.seg button[aria-pressed=true]{background:var(--fg);color:var(--surface)}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;color:var(--muted);margin-top:6px;align-items:center}
+.sw{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-2px;margin-right:4px}
+.big{display:flex;flex-wrap:wrap;gap:10px 22px;margin:2px 0 6px}
+.big div{display:grid}.big .v{font-family:var(--mono);font-size:26px;font-weight:500;line-height:1.1}.big .k{font-size:12px;color:var(--muted)}
+.note{font-size:12px;color:var(--muted);margin:6px 0 0}
+#tip{position:fixed;pointer-events:none;background:var(--fg);color:var(--surface);font-size:12.5px;line-height:1.45;padding:6px 9px;border-radius:6px;opacity:0;transition:opacity .1s;max-width:240px;z-index:9}
+table{border-collapse:collapse;width:100%;font-size:13px}
+.tw{overflow-x:auto}
+th,td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}
+th{color:var(--muted);font-weight:500;white-space:nowrap}
+td:first-child{white-space:nowrap;font-weight:500}
+#err{display:none;color:var(--c1)}
+</style>
+
+<div class="wrap">
+  <header><h1>毒駕路檢規劃工具</h1><span class="tag">D3.js 原型｜資料為模擬</span></header>
+  <p class="lead">先看全台哪些縣市「事故多、查獲少」，再下鑽到路口，依事故、人流與查獲缺口推薦路檢點，並用 2026 上半年的事故回測推薦是否有效，最後看該在哪些時段設點。</p>
+  <p id="err">D3.js 沒有載入成功，請重新整理頁面。</p>
+
+  <p class="step">① OVERVIEW　全台縣市</p>
+  <div class="row2">
+    <div class="card">
+      <h2>縣市格狀示意地圖</h2>
+      <div class="chips"><span class="chip">Idiom <b>Grid cartogram</b></span><span class="chip">Task <b>discover distribution</b></span><span class="chip">每縣市同大小，避免面量圖「面積大就顯眼」</span></div>
+      <div class="controls" style="margin-bottom:6px"><span class="seg" id="metric" role="group" aria-label="地圖指標">
+        <button data-k="crashR" aria-pressed="true">事故率</button><button data-k="catchR" aria-pressed="false">查獲率</button><button data-k="gap" aria-pressed="false">查獲缺口</button></span></div>
+      <svg class="chart" id="carto" viewBox="0 0 300 470" role="img" aria-label="台灣縣市格狀示意地圖"></svg>
+      <div class="legend" id="cartoLegend"></div>
+    </div>
+    <div class="card">
+      <h2>縣市排序長條圖</h2>
+      <div class="chips"><span class="chip">Idiom <b>Bar chart</b></span><span class="chip">Task <b>compare, lookup</b></span><span class="chip">separated · aligned · ordered</span></div>
+      <p class="sub" id="barSub"></p>
+      <svg class="chart" id="cbar" viewBox="0 0 380 430" role="img" aria-label="縣市指標排序長條圖"></svg>
+      <p class="note">事故率、查獲率皆以每十萬人計（normalize）。查獲缺口 = 該縣市「查獲 ÷ 事故」相對全國的倍數，低於 1 代表事故多卻較少查到。事故少於 5 件的縣市比值不穩，以灰色表示。</p>
+    </div>
+  </div>
+
+  <p class="step">② ZOOM　臺南市中西區・路口層</p>
+  <div class="card controls" role="group" aria-label="評分權重">
+    <label for="w1">事故權重<span class="r"><input id="w1" type="range" min="0" max="10" value="6"><span class="num" id="w1v">6</span></span></label>
+    <label for="w2">夜間人流權重<span class="r"><input id="w2" type="range" min="0" max="10" value="3"><span class="num" id="w2v">3</span></span></label>
+    <label for="w3">查獲缺口權重<span class="r"><input id="w3" type="range" min="0" max="10" value="5"><span class="num" id="w3v">5</span></span></label>
+    <label for="n">建議路檢點數<span class="r"><input id="n" type="range" min="3" max="25" value="10"><span class="num" id="nv">10</span> 個</span></label>
+    <label style="display:flex;gap:6px;align-items:center;color:var(--fg)"><input id="show26" type="checkbox" checked>顯示 2026 上半年事故</label>
+  </div>
+  <div class="row2 wide">
+    <div class="card">
+      <h2>路口比例符號地圖</h2>
+      <div class="chips"><span class="chip">Idiom <b>Symbol map</b></span><span class="chip">Task <b>locate, browse</b></span><span class="chip">圓面積 ∝ 2025 事故數（scaleSqrt）</span></div>
+      <svg class="chart" id="map" viewBox="0 0 690 560" role="img" aria-label="路口比例符號地圖與建議路檢點"></svg>
+      <div class="legend">
+        <span><span class="sw" style="background:var(--c1);opacity:.35;border-radius:50%"></span>2025 事故（面積）</span>
+        <span><span class="sw" style="background:var(--c1);border-radius:50%"></span>建議路檢點（編號）</span>
+        <span><span class="sw" style="border:2px solid var(--c2);background:none"></span>現行查獲最多的路口</span>
+        <span>◇ 2026 上半年事故（回測）</span>
+      </div>
+    </div>
+    <div class="card">
+      <h2>查獲 vs 事故散佈圖</h2>
+      <div class="chips"><span class="chip">Idiom <b>Scatterplot</b></span><span class="chip">Task <b>locate outliers, correlation</b></span><span class="chip">與地圖連動</span></div>
+      <p class="sub">左上象限＝事故多但很少查到，就是要補的缺口。滑過點會在地圖標出該路口。</p>
+      <svg class="chart" id="scatter" viewBox="0 0 420 360" role="img" aria-label="各路口查獲數與事故數散佈圖"></svg>
+      <div class="legend"><span><span class="sw" style="background:var(--c1);border-radius:50%"></span>建議點</span><span><span class="sw" style="border:1.5px solid var(--muted);border-radius:50%"></span>其他路口</span></div>
+    </div>
+  </div>
+
+  <p class="step">③ DECIDE　推薦與驗證</p>
+  <div class="row2">
+    <div class="card">
+      <h2>建議點排名與分數組成</h2>
+      <div class="chips"><span class="chip">Idiom <b>Stacked bar chart</b></span><span class="chip">Task <b>derive → rank, part-to-whole</b></span></div>
+      <svg class="chart" id="stack" viewBox="0 0 440 300" role="img" aria-label="建議點分數組成堆疊長條圖"></svg>
+      <div class="legend"><span><span class="sw" style="background:var(--c1)"></span>事故</span><span><span class="sw" style="background:var(--c3)"></span>夜間人流</span><span><span class="sw" style="background:var(--c4)"></span>查獲缺口</span></div>
+    </div>
+    <div class="card">
+      <h2>回測：攔得住 2026 年的事故嗎？</h2>
+      <div class="chips"><span class="chip">Idiom <b>Line chart</b></span><span class="chip">Task <b>compare trends</b></span><span class="chip">key 為有序（點數），y 軸從 0 起</span></div>
+      <div class="big">
+        <div><span class="v" id="covA" style="color:var(--c1)">–</span><span class="k">本工具建議</span></div>
+        <div><span class="v" id="covB" style="color:var(--c2)">–</span><span class="k">現行查獲熱點</span></div>
+        <div><span class="v" id="covR" style="color:var(--muted)">–</span><span class="k">隨機設點（期望值）</span></div>
+      </div>
+      <svg class="chart" id="curve" viewBox="0 0 440 230" role="img" aria-label="路檢點數與事故涵蓋率折線圖"></svg>
+      <p class="note">涵蓋率：2026 上半年的毒駕事故中，發生在選定路檢路口的比例。</p>
+    </div>
+  </div>
+  <div class="card">
+    <h2>建議點的事故時段</h2>
+    <div class="chips"><span class="chip">Idiom <b>Heatmap</b>（two keys, one value）</span><span class="chip">Task <b>find clusters</b></span><span class="chip">回答「什麼時候設點」</span></div>
+    <p class="sub">上方選定的建議路口，2025 年毒駕事故依星期與時段的分布。</p>
+    <svg class="chart" id="heat" viewBox="0 0 760 220" role="img" aria-label="星期與時段熱度圖"></svg>
+  </div>
+
+  <p class="step">④ ANALYSIS　Munzner 分析架構</p>
+  <div class="card tw">
+    <table>
+      <thead><tr><th>視圖</th><th>What（資料）</th><th>Why（{action, target}）</th><th>How（idiom／編碼）</th></tr></thead>
+      <tbody>
+        <tr><td>縣市格狀地圖</td><td>22 縣市（categorical key）× 事故率、查獲率、缺口（quant）</td><td>discover distribution；present 給決策者</td><td>grid cartogram；sequential 5 階，缺口用 diverging；derive 每十萬人比率</td></tr>
+        <tr><td>縣市長條圖</td><td>1 key、1 value</td><td>compare、lookup values</td><td>bar chart，依數值排序、對齊</td></tr>
+        <tr><td>比例符號地圖</td><td>路口點位（spatial）× 事故數、查獲數</td><td>locate、browse 熱區</td><td>symbol map；面積 ∝ 事故數（取平方根）</td></tr>
+        <tr><td>散佈圖</td><td>2 quant：查獲數、事故數；無 key</td><td>locate outliers（左上象限）、correlation</td><td>scatterplot；水平＋垂直位置；顏色標建議點</td></tr>
+        <tr><td>堆疊長條圖</td><td>derive：分數 = 事故 + 人流 + 缺口</td><td>derive、rank、part-to-whole</td><td>stacked bar；length + color hue</td></tr>
+        <tr><td>回測折線圖</td><td>ordered key（點數 3–25）× 涵蓋率</td><td>compare trends（三種策略）</td><td>line chart；y 軸含 0</td></tr>
+        <tr><td>熱度圖</td><td>2 keys（星期、時段）× 事故數</td><td>find clusters</td><td>heatmap；sequential colormap</td></tr>
+      </tbody>
+    </table>
+    <p class="note">互動遵循 overview first, zoom and filter, details on demand：縣市總覽 → 路口 → 滑過看細節。實作資料：事故來自交通事故開放資料，人流來自電信信令人口，查獲來自司法院判決書。目前所有數字皆為模擬，只用來說明介面運作。</p>
+  </div>
+</div>
+<div id="tip" role="tooltip"></div>
+
+<script>
+if(!window.d3){document.getElementById('err').style.display='block';throw new Error('d3 not loaded')}
+const tip=d3.select('#tip');
+function showTip(ev,html){tip.html(html).style('opacity',1);const w=tip.node().offsetWidth;
+  tip.style('left',Math.min(ev.clientX+12,innerWidth-w-8)+'px').style('top',(ev.clientY+14)+'px')}
+const hideTip=()=>tip.style('opacity',0);
+const pct=v=>Math.round(v*100)+'%';
+const SEQ=['var(--s1)','var(--s2)','var(--s3)','var(--s4)','var(--s5)'];
+
+/* ---------- ① 縣市資料（模擬）：pop 單位萬人；cr、kr 為每十萬人事故、查獲 ---------- */
+const C=[
+ ['臺北市',3,0,247,1.1,6.5],['基隆市',4,0,36,2.0,4.4],['桃園市',2,1,230,2.6,5.5],['新北市',3,1,405,1.6,6.0],['宜蘭縣',4,1,45,2.4,4.0],
+ ['新竹市',1,2,45,1.3,4.8],['新竹縣',2,2,59,1.8,4.1],['苗栗縣',1,3,53,2.1,3.9],['臺中市',2,3,285,2.2,5.0],['南投縣',3,3,48,2.5,3.6],
+ ['花蓮縣',4,3,32,2.9,3.4],['彰化縣',1,4,123,2.3,4.2],['雲林縣',2,4,66,2.7,3.3],['嘉義縣',3,4,48,2.8,3.5],['嘉義市',2,5,26,2.2,4.6],
+ ['臺東縣',4,5,21,3.6,3.1],['臺南市',2,6,185,3.4,3.2],['高雄市',3,6,272,3.0,5.8],['屏東縣',3,7,79,3.2,3.8],
+ ['連江縣',0,0,1.4,0,2.0],['金門縣',0,1,14,0.7,3.0],['澎湖縣',0,4,11,1.8,3.6]
+].map(([name,c,r,pop,cr,kr])=>{const crash=Math.round(cr*pop/10),caught=Math.round(kr*pop/10);
+  return{name,c,r,pop,crash,caught,crashR:crash/pop*10,catchR:caught/pop*10}});
+const natRatio=d3.sum(C,d=>d.caught)/d3.sum(C,d=>d.crash);
+C.forEach(d=>d.gap=d.crash<5?NaN:(d.caught/d.crash)/natRatio);
+const METRIC={
+  crashR:{label:'每十萬人毒駕事故',fmt:d3.format('.1f'),scale:()=>d3.scaleQuantize().domain([0,d3.max(C,d=>d.crashR)]).range(SEQ)},
+  catchR:{label:'每十萬人毒駕查獲',fmt:d3.format('.1f'),scale:()=>d3.scaleQuantize().domain([0,d3.max(C,d=>d.catchR)]).range(SEQ)},
+  gap:{label:'查獲 ÷ 事故（相對全國）',fmt:d3.format('.2f'),diverging:true,scale:()=>d3.scaleThreshold().domain([.7,.9,1.1,1.4]).range(['var(--d1)','var(--d2)','var(--d3)','var(--d4)','var(--d5)'])}
+};
+let metric='crashR';
+function drawOverview(){
+  const M=METRIC[metric],col=M.scale(),fill=d=>isNaN(d[metric])?'var(--na)':col(d[metric]);
+  const strong=d=>{const v=d[metric];if(isNaN(v))return false;const c=col(v);return M.diverging?(c==='var(--d1)'||c==='var(--d5)'):(c==='var(--s4)'||c==='var(--s5)')};
+  const T=52,ox=6,oy=8,svg=d3.select('#carto');
+  svg.selectAll('line.sep').data([0]).join('line').attr('class','sep').attr('x1',ox+T+3).attr('x2',ox+T+3).attr('y1',oy).attr('y2',oy+5*T)
+    .attr('stroke','var(--line)').attr('stroke-dasharray','3 3');
+  const g=svg.selectAll('g.tile').data(C,d=>d.name).join(e=>{const g=e.append('g').attr('class','tile');
+      g.append('rect').attr('width',T-4).attr('height',T-4).attr('rx',6);g.append('text').attr('class','n');g.append('text').attr('class','v');return g})
+    .attr('transform',d=>`translate(${ox+d.c*T+(d.c?8:0)},${oy+d.r*T})`)
+    .on('mousemove',(ev,d)=>showTip(ev,`<b>${d.name}</b><br>事故 ${d.crash} 件（${d.crashR.toFixed(1)}／十萬人）<br>查獲 ${d.caught} 件（${d.catchR.toFixed(1)}／十萬人）<br>查獲缺口 ${isNaN(d.gap)?'件數太少':d.gap.toFixed(2)}`))
+    .on('mouseleave',hideTip);
+  g.select('rect').attr('stroke',d=>d.name==='臺南市'?'var(--fg)':'none').attr('stroke-width',2.5).transition().duration(300).attr('fill',fill);
+  g.select('text.n').attr('x',(T-4)/2).attr('y',20).attr('text-anchor','middle').attr('font-size',11.5).attr('font-weight',500)
+    .attr('fill',d=>strong(d)?'var(--on)':'var(--fg)').text(d=>d.name);
+  g.select('text.v').attr('x',(T-4)/2).attr('y',37).attr('text-anchor','middle').attr('font-size',11).attr('font-family','var(--mono)')
+    .attr('fill',d=>strong(d)?'var(--on)':'var(--muted)').text(d=>isNaN(d[metric])?'–':M.fmt(d[metric]));
+  svg.selectAll('text.cap').data(['離島']).join('text').attr('class','cap').attr('x',ox+(T-4)/2).attr('y',oy+5*T+10).attr('text-anchor','middle').attr('font-size',11).attr('fill','var(--muted)').text(d=>d);
+  svg.selectAll('text.down').data(['臺南：下鑽到路口 ↓']).join('text').attr('class','down').attr('x',ox+T+8).attr('y',oy+8*T+14).attr('font-size',11.5).attr('fill','var(--fg)').text(d=>d);
+  const lg=d3.select('#cartoLegend').html('');
+  if(M.diverging)[['var(--d1)','< 0.7 缺口大'],['var(--d2)','0.7–0.9'],['var(--d3)','≈ 全國'],['var(--d4)','1.1–1.4'],['var(--d5)','≥ 1.4 查得多'],['var(--na)','件數太少']]
+      .forEach(([c,t])=>lg.append('span').html(`<span class="sw" style="background:${c}"></span>${t}`));
+  else{const b=[0,...col.thresholds(),col.domain()[1]];col.range().forEach((c,i)=>lg.append('span').html(`<span class="sw" style="background:${c}"></span>${M.fmt(b[i])}–${M.fmt(b[i+1])}`))}
+  drawCountyBar(fill);
+}
+function drawCountyBar(fill){
+  const M=METRIC[metric],val=d=>isNaN(d[metric])?-1:d[metric],data=[...C].sort((a,b)=>val(b)-val(a));
+  d3.select('#barSub').text(M.label+'，由高到低');
+  const svg=d3.select('#cbar'),Wd=380,H=430,m={l:58,r:40,t:4,b:22};
+  const y=d3.scaleBand().domain(data.map(d=>d.name)).range([m.t,H-m.b]).padding(.18);
+  const x=d3.scaleLinear().domain([0,d3.max(C,d=>d[metric]||0)]).nice().range([m.l,Wd-m.r]);
+  svg.selectAll('g.ax').data([0]).join('g').attr('class','axis ax').attr('transform',`translate(0,${H-m.b})`).call(d3.axisBottom(x).ticks(5).tickSizeOuter(0));
+  svg.selectAll('text.lab').data(data,d=>d.name).join('text').attr('class','lab').attr('x',m.l-6).attr('text-anchor','end').attr('font-size',11).attr('fill','var(--fg)').text(d=>d.name)
+    .transition().duration(400).attr('y',d=>y(d.name)+y.bandwidth()/2+4);
+  svg.selectAll('rect.b').data(data,d=>d.name).join('rect').attr('class','b').attr('x',m.l).attr('height',y.bandwidth()).attr('rx',2)
+    .on('mousemove',(ev,d)=>showTip(ev,`<b>${d.name}</b><br>${M.label}：${isNaN(d[metric])?'件數太少':M.fmt(d[metric])}`)).on('mouseleave',hideTip)
+    .transition().duration(400).attr('y',d=>y(d.name)).attr('width',d=>isNaN(d[metric])?0:x(d[metric])-m.l).attr('fill',fill);
+  svg.selectAll('text.val').data(data,d=>d.name).join('text').attr('class','val num').attr('font-size',10.5).attr('fill','var(--muted)').text(d=>isNaN(d[metric])?'件數太少':M.fmt(d[metric]))
+    .transition().duration(400).attr('y',d=>y(d.name)+y.bandwidth()/2+4).attr('x',d=>(isNaN(d[metric])?m.l:x(d[metric]))+4);
+  svg.selectAll('line.ref').data(M.diverging?[1]:[]).join('line').attr('class','ref').attr('x1',x(1)).attr('x2',x(1)).attr('y1',m.t).attr('y2',H-m.b)
+    .attr('stroke','var(--fg)').attr('stroke-dasharray','3 3').attr('opacity',.5);
+}
+d3.selectAll('#metric button').on('click',function(){const btn=this;metric=btn.dataset.k;
+  d3.selectAll('#metric button').attr('aria-pressed',function(){return String(this===btn)});drawOverview()});
+
+/* ---------- ② 路口資料（模擬，固定亂數種子） ---------- */
+const lcg=d3.randomLcg(0.20261020),R=()=>lcg(),pois=l=>d3.randomPoisson.source(lcg)(l)();
+const EW=['成功路','民族路','民權路','民生路','府前路','健康路','中華路','大同路'];
+const NSs=['安平路','西門路','國華街','永福路','忠義路','公園路','北門路','東門路'];
+const hot=[[1,5,1.0,2.2],[4,1,0.9,1.8],[6,6,0.8,2.0],[2,2,0.8,1.0]],pop0=[[1,4,2.2,1],[3,3,2.5,.8]];
+const cur0=[[1,5],[0,0],[2,2],[3,3],[0,7],[7,0]];
+const nodes=[];
+for(let r=0;r<EW.length;r++)for(let c=0;c<NSs.length;c++){
+  const g=list=>d3.sum(list,([hr,hc,sd,a])=>a*Math.exp(-((r-hr)**2+(c-hc)**2)/(2*sd*sd)));
+  const risk=0.04+g(hot),pop=0.2+g(pop0)+0.4*g(hot)+0.15*R();
+  const bias=d3.sum(cur0,([a,b])=>Math.exp(-((r-a)**2+(c-b)**2)/1.2));
+  nodes.push({id:r*8+c,r,c,name:EW[r]+'×'+NSs[c],risk,pop,crash25:pois(risk*9),crash26:pois(risk*8),catch25:pois(0.5+risk*2+bias*9),jx:R()-.5,jy:R()-.5});
+}
+['crash25','pop','catch25'].forEach(k=>{const m=d3.max(nodes,n=>n[k]);nodes.forEach(n=>n[k+'N']=n[k]/m)});
+/* 每件 2025 事故的星期、時段（模擬：週五六深夜偏多） */
+const WD=['一','二','三','四','五','六','日'],HB=['00–04','04–08','08–12','12–16','16–20','20–24'];
+const wdW=[.9,.8,.9,1,1.5,1.8,1.3],hbW=[2.2,1.3,.5,.6,.9,1.6];
+const pickW=w=>{let t=R()*d3.sum(w);for(let i=0;i<w.length;i++){t-=w[i];if(t<0)return i}return w.length-1};
+nodes.forEach(n=>n.events=d3.range(n.crash25).map(()=>({wd:pickW(wdW),hb:pickW(hbW)})));
+const tot26=d3.sum(nodes,n=>n.crash26);
+const coverage=sel=>{const s=new Set(sel.map(n=>n.id));return d3.sum(nodes,n=>s.has(n.id)?n.crash26:0)/tot26};
+const score=(n,w)=>{const a=w[0]*n.crash25N,b=w[1]*n.popN,g=w[2]*Math.max(0,n.crash25N-n.catch25N);return{n,a,b,g,s:a+b+g}};
+const pick=(w,N)=>nodes.map(n=>score(n,w)).sort((x,y)=>y.s-x.s).slice(0,N);
+const pickCur=N=>[...nodes].sort((x,y)=>y.catch25-x.catch25||y.crash25-x.crash25).slice(0,N);
+const randCache={};
+const randCov=N=>randCache[N]??=(()=>{const r=d3.randomLcg(0.7);return d3.mean(d3.range(200),()=>coverage(d3.shuffler(r)([...nodes]).slice(0,N)))})();
+const W=()=>['w1','w2','w3'].map(k=>+d3.select('#'+k).property('value'));
+
+const X=c=>50+c*76,Y=r=>40+r*64;
+const rCrash=d3.scaleSqrt().domain([0,d3.max(nodes,n=>n.crash25)]).range([0,22]);
+const nodeTip=(d,selIds)=>`<b>${d.name}</b>${selIds.has(d.id)?`（建議第 ${selIds.get(d.id)} 名）`:''}<br>2025 事故 ${d.crash25}・查獲 ${d.catch25}<br>2026 上半年事故 ${d.crash26}`;
+function drawMap(sel,cur){
+  const svg=d3.select('#map'),selIds=new Map(sel.map((o,i)=>[o.n.id,i+1])),curIds=new Set(cur.map(n=>n.id));
+  svg.selectAll('line.ew').data(EW).join('line').attr('class','ew').attr('x1',30).attr('x2',X(7)+20).attr('y1',(d,i)=>Y(i)).attr('y2',(d,i)=>Y(i)).attr('stroke','var(--street)').attr('stroke-width',6).attr('stroke-linecap','round');
+  svg.selectAll('line.ns').data(NSs).join('line').attr('class','ns').attr('y1',20).attr('y2',Y(7)+20).attr('x1',(d,i)=>X(i)).attr('x2',(d,i)=>X(i)).attr('stroke','var(--street)').attr('stroke-width',6).attr('stroke-linecap','round');
+  svg.selectAll('text.ewl').data(EW).join('text').attr('class','ewl').attr('x',X(7)+28).attr('y',(d,i)=>Y(i)+4).attr('font-size',11).attr('fill','var(--muted)').text(d=>d);
+  svg.selectAll('text.nsl').data(NSs).join('text').attr('class','nsl').attr('x',(d,i)=>X(i)).attr('y',Y(7)+38).attr('text-anchor','middle').attr('font-size',11).attr('fill','var(--muted)').text(d=>d);
+  const g=svg.selectAll('g.node').data(nodes,d=>d.id).join(e=>{const g=e.append('g').attr('class','node');
+      g.append('circle').attr('class','sym');g.append('path').attr('class','d26');g.append('rect').attr('class','cur');g.append('circle').attr('class','sel');g.append('text').attr('class','rk');
+      g.append('circle').attr('class','hit').attr('r',26).attr('fill','transparent');return g})
+    .attr('transform',d=>`translate(${X(d.c)},${Y(d.r)})`)
+    .on('mousemove',(ev,d)=>{hover(d.id);showTip(ev,nodeTip(d,selIds))}).on('mouseleave',()=>{hover(null);hideTip()});
+  g.select('circle.sym').attr('fill','var(--c1)').attr('fill-opacity',.3).attr('stroke','var(--c1)').attr('stroke-opacity',.5).transition().duration(300).attr('r',d=>rCrash(d.crash25));
+  const show26=d3.select('#show26').property('checked');
+  g.select('path.d26').attr('d',d=>{if(!show26||!d.crash26)return null;const k=4+Math.sqrt(d.crash26)*3;return`M14 ${-14-k}L${14+k} -14L14 ${-14+k}L${14-k} -14Z`})
+    .attr('fill','none').attr('stroke','var(--fg)').attr('stroke-width',1.3).attr('opacity',.75);
+  g.select('rect.cur').attr('x',-15).attr('y',-15).attr('width',30).attr('height',30).attr('rx',3).attr('fill','none').attr('stroke','var(--c2)').attr('stroke-width',2.5).attr('display',d=>curIds.has(d.id)?null:'none');
+  g.select('circle.sel').attr('r',11).attr('fill','var(--c1)').attr('stroke','var(--surface)').attr('stroke-width',2).attr('display',d=>selIds.has(d.id)?null:'none');
+  g.select('text.rk').attr('y',4).attr('text-anchor','middle').attr('font-size',11).attr('font-weight',700).attr('font-family','var(--mono)').attr('fill','#fff').text(d=>selIds.get(d.id)||'');
+  svg.selectAll('circle.hl').data([0]).join('circle').attr('class','hl').attr('r',20).attr('fill','none').attr('stroke','var(--fg)').attr('stroke-width',2).attr('display','none').attr('pointer-events','none').raise();
+}
+function hover(id){
+  const n=nodes.find(d=>d.id===id);
+  d3.select('#map circle.hl').attr('display',n?null:'none').attr('cx',n?X(n.c):0).attr('cy',n?Y(n.r):0);
+  d3.selectAll('#scatter circle.pt').attr('stroke-width',d=>d.id===id?3:1.2).attr('stroke',d=>d.id===id?'var(--fg)':d.sel?'var(--surface)':'var(--muted)');
+}
+function drawScatter(sel){
+  const selIds=new Map(sel.map((o,i)=>[o.n.id,i+1]));nodes.forEach(n=>n.sel=selIds.has(n.id));
+  const svg=d3.select('#scatter'),Wd=420,H=360,m={l:42,r:12,t:12,b:40};
+  const x=d3.scaleLinear().domain([0,d3.max(nodes,n=>n.catch25)+1]).range([m.l,Wd-m.r]);
+  const y=d3.scaleLinear().domain([0,d3.max(nodes,n=>n.crash25)+1]).range([H-m.b,m.t]);
+  const tx=d3.mean(nodes,n=>n.catch25),ty=d3.mean(nodes,n=>n.crash25);
+  svg.selectAll('rect.q').data([0]).join('rect').attr('class','q').attr('x',m.l).attr('y',m.t).attr('width',x(tx)-m.l).attr('height',y(ty)-m.t).attr('fill','var(--soft)').attr('opacity',.6);
+  svg.selectAll('text.ql').data(['缺口：事故多、查獲少']).join('text').attr('class','ql').attr('x',m.l+6).attr('y',m.t+15).attr('font-size',11.5).attr('fill','var(--fg)').text(d=>d);
+  svg.selectAll('g.xa').data([0]).join('g').attr('class','axis xa').attr('transform',`translate(0,${H-m.b})`).call(d3.axisBottom(x).ticks(6).tickSizeOuter(0));
+  svg.selectAll('g.ya').data([0]).join('g').attr('class','axis ya').attr('transform',`translate(${m.l},0)`).call(d3.axisLeft(y).ticks(6).tickSizeOuter(0));
+  svg.selectAll('text.xt').data(['2025 查獲件數（判決）']).join('text').attr('class','xt').attr('x',Wd-m.r).attr('y',H-6).attr('text-anchor','end').attr('font-size',11).attr('fill','var(--muted)').text(d=>d);
+  svg.selectAll('text.yt').data(['2025 毒駕事故件數']).join('text').attr('class','yt').attr('transform',`translate(12,${m.t}) rotate(-90)`).attr('text-anchor','end').attr('font-size',11).attr('fill','var(--muted)').text(d=>d);
+  svg.selectAll('line.tx').data([tx]).join('line').attr('class','tx').attr('x1',x(tx)).attr('x2',x(tx)).attr('y1',m.t).attr('y2',H-m.b).attr('stroke','var(--line)').attr('stroke-dasharray','3 3');
+  svg.selectAll('line.ty').data([ty]).join('line').attr('class','ty').attr('x1',m.l).attr('x2',Wd-m.r).attr('y1',y(ty)).attr('y2',y(ty)).attr('stroke','var(--line)').attr('stroke-dasharray','3 3');
+  svg.selectAll('circle.pt').data(nodes,d=>d.id).join('circle').attr('class','pt')
+    .on('mousemove',(ev,d)=>{hover(d.id);showTip(ev,nodeTip(d,selIds))}).on('mouseleave',()=>{hover(null);hideTip()})
+    .attr('fill',d=>d.sel?'var(--c1)':'none').attr('stroke',d=>d.sel?'var(--surface)':'var(--muted)').attr('stroke-width',1.2)
+    .transition().duration(300).attr('cx',d=>x(d.catch25+d.jx*.5)).attr('cy',d=>y(d.crash25+d.jy*.5)).attr('r',d=>d.sel?6:4.5);
+  svg.selectAll('circle.pt').sort((a,b)=>a.sel-b.sel);
+}
+function drawStack(sel){
+  const svg=d3.select('#stack'),Wd=440,m={l:112,r:44,t:4,b:22},H=Math.max(140,sel.length*22+m.t+m.b);
+  svg.attr('viewBox',`0 0 ${Wd} ${H}`);
+  const cols={a:'var(--c1)',b:'var(--c3)',g:'var(--c4)'},lab={a:'事故',b:'夜間人流',g:'查獲缺口'};
+  const series=d3.stack().keys(['a','b','g'])(sel);
+  const y=d3.scaleBand().domain(sel.map(o=>o.n.id)).range([m.t,H-m.b]).padding(.22);
+  const x=d3.scaleLinear().domain([0,d3.max(sel,o=>o.s)||1]).nice().range([m.l,Wd-m.r]);
+  svg.selectAll('g.xa').data([0]).join('g').attr('class','axis xa').attr('transform',`translate(0,${H-m.b})`).call(d3.axisBottom(x).ticks(5).tickSizeOuter(0));
+  svg.selectAll('g.layer').data(series,d=>d.key).join('g').attr('class','layer').attr('fill',d=>cols[d.key])
+    .selectAll('rect').data(d=>d.map(v=>Object.assign(v,{key:d.key})),v=>v.data.n.id).join('rect')
+    .attr('y',v=>y(v.data.n.id)).attr('height',y.bandwidth()).attr('x',v=>x(v[0])).attr('width',v=>Math.max(0,x(v[1])-x(v[0])-1.5))
+    .on('mousemove',(ev,v)=>{hover(v.data.n.id);showTip(ev,`<b>${v.data.n.name}</b><br>${lab[v.key]}：${(v[1]-v[0]).toFixed(2)}<br>總分 ${v.data.s.toFixed(2)}`)})
+    .on('mouseleave',()=>{hover(null);hideTip()});
+  svg.selectAll('text.nm').data(sel,o=>o.n.id).join('text').attr('class','nm').attr('x',m.l-6).attr('y',o=>y(o.n.id)+y.bandwidth()/2+4).attr('text-anchor','end').attr('font-size',11).attr('fill','var(--fg)')
+    .text((o,i)=>`${i+1}. ${o.n.name}`);
+  svg.selectAll('text.tot').data(sel,o=>o.n.id).join('text').attr('class','tot num').attr('x',o=>x(o.s)+4).attr('y',o=>y(o.n.id)+y.bandwidth()/2+4).attr('font-size',10.5).attr('fill','var(--muted)').text(o=>o.s.toFixed(1));
+}
+function drawCurve(w,N){
+  const svg=d3.select('#curve'),Wd=440,H=230,m={l:40,r:70,t:10,b:36},ns=d3.range(3,26);
+  const x=d3.scaleLinear().domain([3,25]).range([m.l,Wd-m.r]),y=d3.scaleLinear().domain([0,1]).range([H-m.b,m.t]);
+  svg.selectAll('g.xa').data([0]).join('g').attr('class','axis xa').attr('transform',`translate(0,${H-m.b})`).call(d3.axisBottom(x).tickValues([3,5,10,15,20,25]).tickSizeOuter(0));
+  svg.selectAll('g.ya').data([0]).join('g').attr('class','axis ya').attr('transform',`translate(${m.l},0)`)
+    .call(d3.axisLeft(y).ticks(4).tickFormat(d3.format('.0%')).tickSize(-(Wd-m.l-m.r))).call(g=>g.selectAll('.tick line').attr('opacity',.6)).call(g=>g.select('.domain').remove());
+  svg.selectAll('text.xt').data(['路檢點數']).join('text').attr('class','xt').attr('x',Wd-m.r).attr('y',H-4).attr('text-anchor','end').attr('font-size',11).attr('fill','var(--muted)').text(d=>d);
+  const lines=[{k:'ours',lab:'本工具',col:'var(--c1)',f:n=>coverage(pick(w,n).map(o=>o.n))},{k:'cur',lab:'現行熱點',col:'var(--c2)',f:n=>coverage(pickCur(n))},{k:'rand',lab:'隨機',col:'var(--muted)',dash:'4 4',f:randCov}];
+  lines.forEach(l=>l.v=ns.map(n=>({n,v:l.f(n)})));
+  const line=d3.line().x(d=>x(d.n)).y(d=>y(d.v));
+  svg.selectAll('path.ln').data(lines,d=>d.k).join('path').attr('class','ln').attr('fill','none').attr('stroke',d=>d.col).attr('stroke-width',2).attr('stroke-dasharray',d=>d.dash||null).attr('d',d=>line(d.v));
+  svg.selectAll('text.dl').data(lines,d=>d.k).join('text').attr('class','dl').attr('x',Wd-m.r+6).attr('y',d=>y(d.v.at(-1).v)+4).attr('font-size',11).attr('fill','var(--fg)').text(d=>d.lab);
+  svg.selectAll('line.cur').data([N]).join('line').attr('class','cur').attr('x1',x(N)).attr('x2',x(N)).attr('y1',m.t).attr('y2',H-m.b).attr('stroke','var(--fg)').attr('opacity',.4);
+  svg.selectAll('circle.dot').data(lines.map(l=>({col:l.col,v:l.v.find(d=>d.n===N).v}))).join('circle').attr('class','dot').attr('cx',x(N)).attr('cy',d=>y(d.v)).attr('r',4.5).attr('fill',d=>d.col).attr('stroke','var(--surface)').attr('stroke-width',2);
+  svg.selectAll('rect.hit').data([0]).join('rect').attr('class','hit').attr('x',m.l).attr('y',m.t).attr('width',Wd-m.l-m.r).attr('height',H-m.t-m.b).attr('fill','transparent')
+    .on('mousemove',ev=>{const n=Math.max(3,Math.min(25,Math.round(x.invert(d3.pointer(ev)[0]))));showTip(ev,`<b>${n} 個路檢點</b><br>${lines.map(l=>`${l.lab}：${pct(l.v.find(d=>d.n===n).v)}`).join('<br>')}`)}).on('mouseleave',hideTip);
+  return lines;
+}
+function drawHeat(sel){
+  const svg=d3.select('#heat'),Wd=760,H=220,m={l:56,r:110,t:22,b:6};
+  const cells=d3.range(HB.length).flatMap(h=>d3.range(7).map(w=>({h,w,v:0})));
+  sel.forEach(o=>o.n.events.forEach(e=>cells[e.hb*7+e.wd].v++));
+  const max=d3.max(cells,c=>c.v)||1;
+  const x=d3.scaleBand().domain(d3.range(7)).range([m.l,Wd-m.r]).padding(.06),y=d3.scaleBand().domain(d3.range(HB.length)).range([m.t,H-m.b]).padding(.08);
+  const col=d3.scaleQuantize().domain([0,max]).range(SEQ);
+  svg.selectAll('text.wd').data(WD).join('text').attr('class','wd').attr('x',(d,i)=>x(i)+x.bandwidth()/2).attr('y',14).attr('text-anchor','middle').attr('font-size',11).attr('fill','var(--muted)').text(d=>'週'+d);
+  svg.selectAll('text.hb').data(HB).join('text').attr('class','hb num').attr('x',m.l-6).attr('y',(d,i)=>y(i)+y.bandwidth()/2+4).attr('text-anchor','end').attr('font-size',10.5).attr('fill','var(--muted)').text(d=>d);
+  svg.selectAll('rect.cell').data(cells).join('rect').attr('class','cell').attr('rx',3).attr('x',c=>x(c.w)).attr('y',c=>y(c.h)).attr('width',x.bandwidth()).attr('height',y.bandwidth())
+    .on('mousemove',(ev,c)=>showTip(ev,`週${WD[c.w]} ${HB[c.h]} 時<br>事故 ${c.v} 件`)).on('mouseleave',hideTip)
+    .transition().duration(300).attr('fill',c=>col(c.v));
+  const top=d3.greatest(cells,c=>c.v);
+  svg.selectAll('rect.topbox').data([top]).join('rect').attr('class','topbox').attr('rx',4).attr('fill','none').attr('stroke','var(--fg)').attr('stroke-width',2)
+    .attr('x',c=>x(c.w)-2).attr('y',c=>y(c.h)-2).attr('width',x.bandwidth()+4).attr('height',y.bandwidth()+4);
+  const b=[0,...col.thresholds(),max];
+  svg.selectAll('g.lg').data([0]).join('g').attr('class','lg').attr('transform',`translate(${Wd-m.r+14},${m.t})`)
+    .selectAll('g').data(col.range()).join(e=>{const g=e.append('g');g.append('rect').attr('width',10).attr('height',10).attr('rx',2);g.append('text').attr('class','num').attr('x',14).attr('y',9).attr('font-size',10).attr('fill','var(--muted)');return g})
+    .attr('transform',(d,i)=>`translate(0,${i*15})`).call(g=>g.select('rect').attr('fill',d=>d)).call(g=>g.select('text').text((d,i)=>`${Math.ceil(b[i])}–${Math.floor(b[i+1])} 件`));
+  svg.selectAll('text.toplab').data([top]).join('text').attr('class','toplab').attr('x',Wd-m.r+14).attr('y',m.t+5*15+16).attr('font-size',11).attr('fill','var(--fg)')
+    .text(c=>`最多：週${WD[c.w]} ${HB[c.h]}`);
+}
+function update(){
+  ['w1','w2','w3','n'].forEach(k=>d3.select('#'+k+'v').text(d3.select('#'+k).property('value')));
+  const w=W(),N=+d3.select('#n').property('value'),sel=pick(w,N),cur=pickCur(N);
+  drawMap(sel,cur);drawScatter(sel);drawStack(sel);const lines=drawCurve(w,N);drawHeat(sel);
+  const at=k=>lines.find(l=>l.k===k).v.find(d=>d.n===N).v;
+  d3.select('#covA').text(w.every(v=>v===0)?'–':pct(at('ours')));d3.select('#covB').text(pct(at('cur')));d3.select('#covR').text(pct(at('rand')));
+}
+d3.selectAll('#w1,#w2,#w3,#n,#show26').on('input',update);
+drawOverview();update();
+</script>
+
+</body></html>
